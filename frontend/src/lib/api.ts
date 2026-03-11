@@ -1,49 +1,94 @@
-export type Style = { name: string; label: string; description: string };
+/**
+ * API client for the GlowTry backend.
+ */
 
-function backendBaseUrl() {
-  return process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export interface MakeupConfig {
+  lipstick: {
+    enabled: boolean;
+    color: [number, number, number]; // RGB
+    intensity: number;
+    matte: boolean;
+  };
+  blush: {
+    enabled: boolean;
+    color: [number, number, number];
+    intensity: number;
+  };
+  eyeshadow: {
+    enabled: boolean;
+    color: [number, number, number];
+    intensity: number;
+  };
+  eyeliner: {
+    enabled: boolean;
+    color: [number, number, number];
+    intensity: number;
+    thickness: number;
+    wing: boolean;
+  };
 }
 
-export async function fetchStyles(): Promise<Style[]> {
-  const res = await fetch(`${backendBaseUrl()}/styles`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load styles.");
-  const json = (await res.json()) as { styles: Style[] };
-  return json.styles ?? [];
+export const DEFAULT_CONFIG: MakeupConfig = {
+  lipstick: {
+    enabled: false,
+    color: [180, 60, 60],
+    intensity: 0.5,
+    matte: true,
+  },
+  blush: {
+    enabled: false,
+    color: [220, 150, 150],
+    intensity: 0.4,
+  },
+  eyeshadow: {
+    enabled: false,
+    color: [160, 120, 200],
+    intensity: 0.4,
+  },
+  eyeliner: {
+    enabled: false,
+    color: [30, 30, 30],
+    intensity: 0.7,
+    thickness: 2,
+    wing: false,
+  },
+};
+
+export interface ApplyMakeupResponse {
+  status?: string;
+  image: string; // base64 PNG
+  error?: string;
 }
 
-export async function applyMakeup(params: {
-  file: File;
-  style: string;
-  signal?: AbortSignal;
-}): Promise<Blob> {
-  const fd = new FormData();
-  fd.append("image", params.file);
-  fd.append("style", params.style);
+export async function applyMakeup(
+  imageFile: File,
+  config: MakeupConfig
+): Promise<ApplyMakeupResponse> {
+  const formData = new FormData();
+  formData.append("image", imageFile);
+  formData.append("config", JSON.stringify(config));
 
-  const res = await fetch(`${backendBaseUrl()}/apply-makeup`, {
+  const response = await fetch(`${API_BASE}/apply-makeup`, {
     method: "POST",
-    body: fd,
-    signal: params.signal,
+    body: formData,
   });
 
-  if (!res.ok) {
-    let message = "Failed to process image.";
-    try {
-      const j: unknown = await res.json();
-      if (typeof j === "object" && j !== null && "detail" in j) {
-        const detail = (j as { detail: unknown }).detail;
-        if (typeof detail === "string") message = detail;
-        if (typeof detail === "object" && detail !== null && "message" in detail) {
-          const m = (detail as { message?: unknown }).message;
-          if (typeof m === "string" && m.trim()) message = m;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    throw new Error(message);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: "Unknown error" }));
+    throw new Error(err.detail || `Server error: ${response.status}`);
   }
 
-  return await res.blob();
+  return response.json();
 }
 
+export async function healthCheck(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/health`);
+    const data = await response.json();
+    return data.status === "ok";
+  } catch {
+    return false;
+  }
+}

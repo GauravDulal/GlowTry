@@ -1,100 +1,123 @@
-# GlowTry
+# GlowTry — Virtual Makeup Try-On
 
-Virtual makeup try-on MVP. Upload a selfie, detect facial landmarks, apply a few deterministic makeup looks, compare before/after, and download the result.
+A web app that lets you upload a selfie and try on **lipstick, blush, eyeshadow, and eyeliner** using real computer vision — no AI filters, no CSS tricks.
 
-## Tech stack
+![Tech Stack](https://img.shields.io/badge/Next.js-black?logo=next.js) ![Python](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white) ![MediaPipe](https://img.shields.io/badge/MediaPipe-4285F4?logo=google&logoColor=white)
 
-- **Frontend**: Next.js (App Router) + TypeScript + Tailwind CSS + lightweight shadcn-style UI components
-- **Backend**: Python FastAPI + MediaPipe Face Landmarker (Tasks) + OpenCV + Pillow + NumPy
-- **API**: REST (`/styles`, `/apply-makeup`)
+---
 
-## Project structure
+## Features
 
-- `frontend/` — Next.js web app
-- `backend/` — FastAPI image processing service
+- 📸 Upload any selfie
+- 💄 Apply lipstick (color picker, swatches, intensity, matte/glossy)
+- 🌸 Apply blush (soft gradient, cheek detection)
+- ✨ Apply eyeshadow (eyelid detection, tint overlay)
+- ✏️ Apply eyeliner (lash line, adjustable thickness, optional wing)
+- 🔀 Before / After comparison slider
+- ⬇️ Download the final image
+- 🔄 Reset and try again
 
-## Local setup
+## Tech Stack
 
-### 1) Backend (FastAPI)
+| Layer    | Technology                                   |
+| -------- | -------------------------------------------- |
+| Frontend | Next.js, TypeScript, TailwindCSS, shadcn/ui  |
+| Backend  | FastAPI, Python, MediaPipe FaceMesh, OpenCV   |
+| CV       | 468-point face landmarks, polygon masks, alpha blending |
 
-> On first run, the backend auto-downloads the MediaPipe Face Landmarker `.task` model.
+## Project Structure
+
+```
+glow/
+├── backend/
+│   ├── main.py              # FastAPI app with /health and /apply-makeup
+│   ├── face_detection.py    # MediaPipe FaceMesh landmark detection
+│   ├── utils.py             # Image encoding, alpha blending, mask helpers
+│   ├── makeup/
+│   │   ├── lipstick.py      # Lip mask + color overlay
+│   │   ├── blush.py         # Cheek gradient blush
+│   │   ├── eyeshadow.py     # Eyelid tint overlay
+│   │   └── eyeliner.py      # Lash line drawing with optional wing
+│   └── requirements.txt
+├── frontend/                # Next.js app
+│   └── src/
+│       ├── app/page.tsx     # Main GlowTry page
+│       ├── components/      # MakeupPanel, ImageUpload, BeforeAfterSlider
+│       └── lib/api.ts       # Backend API client
+└── README.md
+```
+
+## Quick Start
+
+### Prerequisites
+
+- **Python 3.10+** with `pip`
+- **Node.js 18+** with `npm`
+
+### 1. Start the Backend
 
 ```bash
 cd backend
-python -m venv .venv
-.\.venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8001
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Check:
-- `GET http://localhost:8001/health`
-- `GET http://localhost:8001/styles`
+The API is now running at `http://localhost:8000`. Verify with:
+```bash
+curl http://localhost:8000/health
+# → {"status":"ok"}
+```
 
-### 2) Frontend (Next.js)
+### 2. Start the Frontend
 
 ```bash
 cd frontend
-copy .env.local.example .env.local
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3000` in your browser.
 
-If your backend is not on `http://localhost:8001`, set `NEXT_PUBLIC_BACKEND_URL` in `frontend/.env.local`.
+### 3. Try It Out
 
-## How the processing pipeline works (MVP)
+1. Upload a selfie (clear, front-facing works best)
+2. Enable a makeup product (e.g., Lipstick)
+3. Pick a shade and adjust intensity
+4. Click **Apply Makeup**
+5. Use the **Before / After** slider to compare
+6. **Download** the final image
 
-1. **Validate upload**: basic type/size checks (frontend and backend).
-2. **Landmarks**: backend runs **MediaPipe Face Landmarker** (single-face only) to get face landmarks.
-3. **Regions**:
-   - **Lips**: outer lip polygon with inner “cutout” polygon
-   - **Cheeks**: soft circular blush around cheek anchors
-   - **Eyes**: simple eyelid/shadow polygon + subtle liner hint
-4. **Deterministic overlays**: OpenCV masks + Gaussian feathering + alpha blending (no generative synthesis).
-5. **Return image**: processed PNG, preserving original dimensions.
+## How It Works
 
-## API
+All makeup effects are applied using **real computer vision**, not generative AI or CSS filters:
 
-### `GET /styles`
+1. **MediaPipe FaceMesh** detects 468 facial landmarks
+2. Landmark subsets define regions (lips, cheeks, eyelids, lash lines)
+3. **Polygon masks** are created and **Gaussian-blurred** for feathered edges
+4. Color is applied via **alpha blending** at user-specified intensity
+5. The result preserves original skin texture for a natural look
 
-Returns available presets:
+## API Reference
 
-- `natural-glow`
-- `soft-glam`
-- `bold-lips`
-- `bridal-touch`
-- `party-look`
+### `GET /health`
+Returns `{"status": "ok"}`
 
 ### `POST /apply-makeup`
+- **Body**: `multipart/form-data`
+  - `image`: Selfie image file (JPG/PNG)
+  - `config`: JSON string with makeup settings
 
-Multipart form data:
-- `image`: file
-- `style`: one of the preset names (or label-like equivalents)
+```json
+{
+  "lipstick":  { "enabled": true, "color": [200, 50, 50], "intensity": 0.6, "matte": true },
+  "blush":     { "enabled": true, "color": [220, 150, 150], "intensity": 0.4 },
+  "eyeshadow": { "enabled": true, "color": [160, 120, 200], "intensity": 0.4 },
+  "eyeliner":  { "enabled": true, "color": [30, 30, 30], "intensity": 0.7, "thickness": 2, "wing": true }
+}
+```
 
-Responses:
-- `200 image/png`: processed image
-- `400`: user-friendly error (`NO_FACE_DETECTED`, `MULTIPLE_FACES_DETECTED`, `UNSUPPORTED_FORMAT`, etc.)
-- `500`: processing failure
+- **Response**: `{ "status": "success", "image": "<base64 PNG>" }`
 
-## Known MVP limitations
+## License
 
-- **Not AR video**: single static image only (no live camera).
-- **Simple region definitions**: eyes/liner are approximations; results vary with pose/occlusion.
-- **Hair/hand occlusion** can confuse landmarks.
-- **Lighting/skin tone diversity**: colors are fixed per preset; no per-user tone adaptation yet.
-- **Single face only**: multiple faces are rejected for clarity.
-
-## Next steps (future versions)
-
-- Add live camera mode (WebRTC) + on-device landmarks
-- Better region masks (eyeliner wing, brows, lashes) and occlusion handling
-- Color adaptation by skin undertone and user preference sliders
-- Face-aware smoothing/skin enhancement with safe limits
-- Preset gallery and “recommend a look” logic (non-generative)
-
-## Brand / UI notes (bonus)
-
-- **Brand color suggestion**: Pink-to-purple gradient (`#ec4899 → #a855f7 → #3b82f6`)
-- **Logo treatment**: “GT” monogram (see `frontend/src/app/icon.svg`)
+MIT
