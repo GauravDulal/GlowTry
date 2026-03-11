@@ -46,10 +46,7 @@ def get_landmarks(img: np.ndarray):
     detection_result = detector.detect(mp_image)
     
     if not detection_result.face_landmarks:
-        print("DEBUG: FaceLandmarker returned no face landmarks")
         return None
-        
-    print(f"DEBUG: Successfully detected {len(detection_result.face_landmarks)} face(s)")
         
     h, w, _ = img.shape
     

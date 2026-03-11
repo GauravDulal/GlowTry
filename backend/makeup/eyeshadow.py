@@ -2,39 +2,54 @@ import numpy as np
 import cv2
 from utils import alpha_blend
 
+# ── Eyeshadow region landmarks ──
+# The eyeshadow region is bounded by:
+#   TOP:    lower edge of the eyebrow (crease line)
+#   BOTTOM: upper eyelid lash line
+# We build a closed polygon: brow-bottom going left→right, then lashline going right→left.
+
+LEFT_EYEBROW_LOWER = [70, 63, 105, 66, 107]
+LEFT_UPPER_LASHLINE = [33, 7, 163, 144, 145, 153, 154, 155, 133]
+
+RIGHT_EYEBROW_LOWER = [300, 293, 334, 296, 336]
+RIGHT_UPPER_LASHLINE = [362, 382, 381, 380, 374, 373, 390, 249, 263]
+
+
+def _eyelid_polygon(landmarks: list, brow_indices: list, lash_indices: list) -> np.ndarray:
+    """
+    Create a closed polygon for the upper eyelid region.
+    Goes along the brow bottom edge left→right, then along the upper lash line right→left.
+    """
+    # Brow bottom points (left→right)
+    brow_pts = [landmarks[i] for i in brow_indices]
+    # Upper lash line reversed so the polygon closes cleanly
+    lash_pts = [landmarks[i] for i in reversed(lash_indices)]
+    return np.array(brow_pts + lash_pts, np.int32)
+
+
 def apply_eyeshadow(img: np.ndarray, landmarks: list, kwargs: dict) -> np.ndarray:
-    """
-    Apply an eyeshadow overlay to the eyelids using FaceMesh landmarks.
-    """
-    color = kwargs.get("color", [150, 100, 200])  # Purple default
+    """Apply eyeshadow to the upper eyelid only (crease to lash line)."""
+    color = kwargs.get("color", [150, 100, 200])  # Purple default (RGB)
     intensity = kwargs.get("intensity", 0.4)
-    
+
     if intensity <= 0:
         return img
-        
+
     h, w, _ = img.shape
-    
-    # Eyelid regions
-    # These map roughly from the crease to the upper lash line
-    left_eyelid_idx = [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7]
-    right_eyelid_idx = [362, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390, 373, 374, 380, 381, 382]
-    
-    left_eyelid_pts = np.array([landmarks[i] for i in left_eyelid_idx], np.int32)
-    right_eyelid_pts = np.array([landmarks[i] for i in right_eyelid_idx], np.int32)
-    
+
+    left_lid = _eyelid_polygon(landmarks, LEFT_EYEBROW_LOWER, LEFT_UPPER_LASHLINE)
+    right_lid = _eyelid_polygon(landmarks, RIGHT_EYEBROW_LOWER, RIGHT_UPPER_LASHLINE)
+
     mask = np.zeros((h, w), dtype=np.uint8)
-    
-    # Fill the eyelid areas
-    cv2.fillPoly(mask, [left_eyelid_pts], 255)
-    cv2.fillPoly(mask, [right_eyelid_pts], 255)
-    
-    # Soften the edges significantly
-    mask = cv2.GaussianBlur(mask, (15, 15), 0)
-    
-    # Create the colored overlay
+    cv2.fillPoly(mask, [left_lid], 255)
+    cv2.fillPoly(mask, [right_lid], 255)
+
+    # Adaptive feathering based on eye width
+    eye_width = abs(landmarks[33][0] - landmarks[133][0])
+    blur_k = max(5, int(eye_width * 0.15) | 1)  # ensure odd
+    mask = cv2.GaussianBlur(mask, (blur_k, blur_k), 0)
+
     overlay = np.zeros_like(img)
-    overlay[:] = color[::-1]  # RGB to BGR
-    
-    blended = alpha_blend(img, overlay, mask, intensity)
-    
-    return blended
+    overlay[:] = color[::-1]  # RGB → BGR
+
+    return alpha_blend(img, overlay, mask, intensity)
